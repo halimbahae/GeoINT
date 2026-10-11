@@ -582,8 +582,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/" or path == "/index.html":
                 self._static_file("index.html")
             elif path.startswith("/static/"):
-                rel = os.path.basename(path[len("/static/"):])
-                self._static_file(rel)
+                self._static_file(path[len("/static/"):])
             elif path == "/api/sessions":
                 self.send_json({"root": str(self.root), "sessions": list_sessions(self.root)})
             elif path.startswith("/api/session/"):
@@ -599,8 +598,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": f"internal error: {exc}"}, 500)
 
     def _static_file(self, rel: str) -> None:
-        safe = os.path.basename(rel)
-        self.send_file(STATIC / safe)
+        rel = rel.split("?", 1)[0]
+        if not rel or ".." in Path(rel).parts:
+            return self.send_error(404)
+        p = (STATIC / rel).resolve()
+        if not str(p).startswith(str(STATIC.resolve()) + os.sep) or not p.is_file():
+            return self.send_error(404)
+        self.send_file(p)
 
     def _session_get(self, path: str, q: dict) -> None:
         rest = path[len("/api/session/"):].strip("/")
@@ -723,6 +727,17 @@ class Handler(BaseHTTPRequestHandler):
             tmp.write(photo["content"])
             tmp_path = Path(tmp.name)
         try:
+            if suffix.lower() in (".heic", ".heif"):
+                from PIL import Image
+                jpg_path = tmp_path.with_suffix(".jpg")
+                try:
+                    import pillow_heif
+                    pillow_heif.register_heif_opener()
+                    Image.open(tmp_path).convert("RGB").save(jpg_path, "JPEG", quality=95)
+                except ImportError:
+                    subprocess.run(["sips", "-s", "format", "jpeg", str(tmp_path), "--out", str(jpg_path)], check=True, capture_output=True)
+                tmp_path.unlink(missing_ok=True)
+                tmp_path = jpg_path
             cmd = [PY, str(SCRIPTS / "photo_session.py"), "start", "--image", str(tmp_path), "--root", str(self.root)]
             if run_cmd(cmd, cwd=REPO) != 0:
                 raise RuntimeError("photo_session.py start failed; see server log")

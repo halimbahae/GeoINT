@@ -422,10 +422,20 @@ function renderOverview() {
     const comb = (r.prior.combined || []).slice(0, 6).map((x) => `<li>${esc(x.name)} (${(x.p * 100).toFixed(0)}%)</li>`).join("");
     const bg = r.prior.best_guess;
     host.appendChild(block("World prior (models — ranking only)", `
-      <p>${a.informative === false ? "⚠ Uninformative: " + (a.reasons || []).join("; ") : "Informative"}</p>
+      <p>${a.informative === false ? "⚠ Uninformative: " + esc((a.reasons || []).join("; ")) : "Informative"}</p>
       <ul class="list">${comb}</ul>
       ${bg ? `<p class="muted">Model point guess: ${bg.lat.toFixed(4)}, ${bg.lon.toFixed(4)}${bg.near ? " near " + esc(bg.near) : ""}</p>` : ""}
-      ${pathExists(state.info.files, "recon/prior/prior_map.png") ? `<img src="${fileURL(state.name, "recon/prior/prior_map.png")}" onclick="openModal(this)" style="max-width:100%;border-radius:8px;margin-top:8px">` : ""}`));
+      ${pathExists(state.info.files, "recon/prior/prior_map.png") ? `
+      <div class="prior-map-wrap">
+        <div class="prior-map-row">
+          <div id="prior-chips" class="prior-chips"></div>
+          <span class="spacer"></span>
+          <button id="prior-max" class="btn ghost mini">⛶ fullscreen</button>
+        </div>
+        <div id="prior-map"></div>
+        <p class="muted"><small>drag to pan · scroll to zoom · click a chip, circle or ★ for details · switch overlays top-right — maps try OSM tiles first, the <em>Prior snapshot</em> layer is the exact prior_map.png and works offline.</small></p>
+      </div>` : ""}`));
+    if (pathExists(state.info.files, "recon/prior/prior_map.png")) initPriorMap();
   }
 
   if (r.calib) {
@@ -511,9 +521,144 @@ function renderSheet(host, label, rels) {
   host.appendChild(div.firstChild);
 }
 
-function openModal(img) {
-  $("#modal-img").src = img.src;
-  $("#modal").classList.remove("hidden");
+function openModal(el) {
+  hideModal();
+  const m = $("#modal");
+  const c = el.cloneNode(false);
+  c.removeAttribute("id");
+  if (c.tagName === "IMG") {
+    c.style.cursor = "default";
+    c.onclick = null;
+  }
+  m.appendChild(c);
+  m.classList.remove("hidden");
+}
+window.hideModal = function hideModal() {
+  const m = $("#modal");
+  if (m.classList.contains("hidden")) return;
+  const priorEl = $("#prior-map.full");
+  if (priorEl) {
+    m.removeChild(priorEl);
+    priorEl.classList.remove("full");
+    if (state.priorMapHome) { state.priorMapHome.appendChild(priorEl); }
+    if (state.priorMap) {
+      requestAnimationFrame(() => {
+        state.priorMap.invalidateSize();
+        if (state.priorSavedBounds) state.priorMap.fitBounds(state.priorSavedBounds);
+      });
+    }
+  }
+  m.innerHTML = "";
+  m.classList.add("hidden");
+};
+
+function showPriorMapMax() {
+  const el = $("#prior-map");
+  if (!el) return;
+  hideModal();
+  state.priorMapHome = el.parentNode;
+  const m = $("#modal");
+  m.appendChild(el);
+  el.classList.add("full");
+  m.classList.remove("hidden");
+  if (state.priorMap) {
+    requestAnimationFrame(() => {
+      state.priorMap.invalidateSize();
+      if (state.priorSavedBounds) state.priorMap.fitBounds(state.priorSavedBounds);
+    });
+  }
+}
+
+function initPriorMap() {
+  const el = $("#prior-map");
+  if (!el) return;
+  if (state.priorMap) { state.priorMap.remove(); state.priorMap = null; }
+  const prior = state.recon.prior || {};
+  const gc = prior.geoclip || {};
+  if (!document.getElementById("prior-max").onclick) {
+    document.getElementById("prior-max").onclick = showPriorMapMax;
+  }
+  const ccName = (iso2) => ((prior.combined || []).find((x) => x.iso2 === iso2) || {}).name || iso2;
+
+  const map = L.map(el, { preferCanvas: true, worldCopyJump: true });
+  state.priorMap = map;
+
+  const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  });
+  const snap = L.imageOverlay(fileURL(state.name, "recon/prior/prior_map.png"),
+    [[-85.0511, -180], [85.0511, 180]], { opacity: 0.82 });
+  const base = {
+    "OSM streets": osm,
+    "Prior snapshot (PNG)": L.layerGroup([snap]),
+  };
+
+  const overlays = {};
+  const clusters = (gc.clusters || []).filter((c) => c && typeof c.lat === "number");
+  const pts = (gc.points || []).filter((p) => p && p.length >= 3 && typeof p[0] === "number");
+  const bg = prior.best_guess;
+
+  if (clusters.length) {
+    const maxMass = Math.max(1e-6, ...clusters.map((c) => c.mass));
+    const glyphs = clusters.map((c) => {
+      const near = c.near || {};
+      const pct = ((c.mass || 0) * 100).toFixed(0) + "%";
+      const where = [near.name, near.admin1, near.country_name].filter(Boolean).join(", ");
+      const circle = L.circle([c.lat, c.lon], {
+        radius: (40 + Math.sqrt(c.mass / maxMass) * 260) * 1000,
+        color: "#ff5a3c", weight: 2, fillColor: "#ff5a3c", fillOpacity: 0.14,
+      });
+      circle.bindTooltip(`${pct} near ${where}`, { sticky: true });
+      circle.bindPopup(`<strong>${pct} of GeoCLIP mass</strong><br>${where || "—"}<br><code>${c.lat}, ${c.lon}</code>`);
+      return circle;
+    });
+    overlays["GeoCLIP clusters (mass %)"] = L.layerGroup(glyphs);
+  }
+  if (pts.length) {
+    const maxP = Math.max(1e-6, ...pts.map((p) => p[2]));
+    const glyphs = pts.map((p) => L.circleMarker([p[0], p[1]], {
+      radius: 1.5 + 4 * Math.sqrt(p[2] / maxP),
+      color: "#5bd0f0", weight: 1, fillColor: "#5bd0f0", fillOpacity: 0.75,
+    }).bindPopup(`<code>${p[0]}, ${p[1]}</code> · p=${p[2].toFixed(4)}`));
+    overlays["GeoCLIP top points"] = L.layerGroup(glyphs);
+  }
+  if (bg && typeof bg.lat === "number") {
+    const guess = L.marker([bg.lat, bg.lon], {
+      icon: L.divIcon({ className: "guess-icon", html: "★", iconSize: [22, 22], iconAnchor: [11, 16] }),
+      zIndexOffset: 1000,
+    });
+    guess.bindPopup(`<strong>Model point guess</strong><br>${bg.lat}, ${bg.lon}${bg.near ? " — near " + esc(bg.near) : ""}${bg.country ? " (" + esc(ccName(bg.country)) + ")" : ""}<br><em>${esc(bg.how || "")}</em>`);
+    overlays["Model point guess"] = guess;
+  }
+
+  osm.addTo(map);
+  Object.values(overlays).forEach((l) => l.addTo(map));
+  L.control.layers(base, overlays, { position: "topright", collapsed: true }).addTo(map);
+
+  const padView = (latlng, deg) => L.latLngBounds([[latlng.lat - deg, latlng.lng - deg], [latlng.lat + deg, latlng.lng + deg]]);
+  if (clusters.length) {
+    state.priorSavedBounds = L.latLngBounds(clusters.map((c) => [c.lat, c.lon])).pad(0.3);
+    map.fitBounds(state.priorSavedBounds, { maxZoom: 9 });
+  } else if (bg) {
+    state.priorSavedBounds = padView(bg, 3);
+    map.setView([bg.lat, bg.lon], 6);
+  } else {
+    state.priorSavedBounds = null;
+    map.setView([20, 0], 2);
+  }
+
+  const chips = $("#prior-chips");
+  if (chips) {
+    chips.innerHTML = "";
+    const add = (t, fn) => { const b = document.createElement("button"); b.className = "chip"; b.textContent = t; b.onclick = fn; chips.appendChild(b); };
+    clusters.slice(0, 8).forEach((c) => {
+      const near = c.near || {};
+      const where = [near.name, near.admin1].filter(Boolean).join(", ");
+      add(`${((c.mass || 0) * 100).toFixed(0)}% ${where || c.lat + ", " + c.lon}`, () => map.fitBounds(padView(c, 1.4), { maxZoom: 11 }));
+    });
+    if (bg) add(`★ ${bg.lat.toFixed(4)}, ${bg.lon.toFixed(4)}${bg.near ? " " + bg.near : ""}`, () => map.fitBounds(padView(bg, 1.1), { maxZoom: 12 }));
+  }
 }
 
 // ------------------------------------------------------------------- tools
@@ -822,12 +967,13 @@ function initEvents() {
       const name = card && card.dataset.name;
       if (!name) return;
       if (act.dataset.act === "rename") {
-        const fresh = prompt("New session name:", name).trim();
-        if (!fresh || fresh === name) return;
+        const fresh = prompt("New session name:", name);
+        if (!fresh || !fresh.trim() || fresh.trim() === name) return;
+        const newName = fresh.trim();
         try {
           const r = await api(`/api/session/${encodeURIComponent(name)}/rename`, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: fresh }),
+            body: JSON.stringify({ name: newName }),
           });
           toast(`renamed → ${r.name}`);
           if (state.name === name) { location.hash = "#/" + r.name; openSession(r.name); }

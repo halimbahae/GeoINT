@@ -93,11 +93,13 @@
       <section id="tab-report" class="tabpane"></section>
     </div>
   </div>
-  <div id="modal" class="modal hidden" onclick="if(event.target===this)this.classList.add('hidden')"><img id="modal-img"></div>
+  <div id="modal" class="modal hidden" onclick="if(event.target===this)hideModal()"></div>
   <div id="toasts"></div>
 </main>
 
 <footer class="foot">GeoInt Web — a thin browser shell around the <span class="mono">GeoInt</span> CLI scripts (MIT).</footer>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<script src="/static/vendor/leaflet/leaflet.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
