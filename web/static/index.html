@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoInt Web</title>
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">🌍</span>
+    <span>GeoInt <em>Web</em></span>
+  </div>
+  <div class="topbar-right">
+    <button id="btn-home" class="btn ghost hidden">← Sessions</button>
+    <span id="conn" class="pill"></span>
+  </div>
+</header>
+
+<main id="view-home" class="view">
+  <section class="hero">
+    <h1>Find where any photo was taken</h1>
+    <p>Upload a photo. The GeoInt pipeline digs through metadata, text and signs,
+       runs reverse image search and world-prior models, then hands you a candidate
+       board and a per-photo evidence archive.</p>
+  </section>
+
+  <section class="dropzone card" id="dropzone">
+    <div class="dz-inner empty-state">
+      <div class="dz-icon">📷</div>
+      <p id="dz-text"><strong>Drop a photo here</strong> or click to choose</p>
+      <p class="muted">JPG / PNG / WebP, up to ~150&nbsp;MB. Runs entirely on this machine.</p>
+    </div>
+    <input type="file" id="dz-file" accept="image/*" hidden>
+  </section>
+
+  <section class="card">
+    <h2 class="card-title">Sessions</h2>
+    <div id="sessions" class="sessions"><p class="muted">Loading…</p></div>
+  </section>
+</main>
+
+<main id="view-session" class="view hidden">
+  <div class="session-grid">
+    <div class="col-photo card">
+      <div class="photo-wrap"><img id="s-photo" alt="the photo being analysed"></div>
+      <div class="photo-meta">
+        <p class="mono muted" id="s-name"></p>
+        <p class="muted" id="s-started"></p>
+        <p id="s-status"></p>
+        <p id="s-result"></p>
+      </div>
+    </div>
+    <div class="col-main">
+      <div class="toolbar card">
+        <button id="btn-recon-quick" class="btn primary" data-mode="quick">▶ Quick recon</button>
+        <button id="btn-recon-full" class="btn" data-mode="full" title="Downloads local ML models on first use (~6 GB)">Full recon (ML)</button>
+        <label class="check"><input type="checkbox" id="opt-norev"> no reverse image search</label>
+        <label class="check"><input type="checkbox" id="opt-skipdetect"> skip detect / calib / prior</label>
+        <span class="spacer"></span>
+        <button id="btn-refresh" class="btn ghost" title="Reload session">⟳</button>
+      </div>
+      <div id="jobbar" class="card hidden">
+        <div class="job-row">
+          <span id="job-kind" class="pill"></span>
+          <span id="job-status-text" class="muted"></span>
+          <span id="job-elapsed" class="mono muted hidden"></span>
+          <span class="spacer"></span>
+          <span id="global-busy" class="pill warn hidden"></span>
+          <button id="btn-log" class="btn ghost mini">log</button>
+          <button id="btn-stop" class="btn danger mini hidden">stop</button>
+        </div>
+        <div class="job-progress hidden" id="job-progress">
+          <div class="job-progress-fill" id="job-progress-fill"></div>
+        </div>
+        <div id="job-steps" class="job-steps hidden"></div>
+        <div id="job-history" class="job-history hidden"></div>
+        <pre id="job-log" class="log hidden" data-livelog></pre>
+      </div>
+
+      <nav class="tabs" id="tabs">
+        <button data-tab="overview" class="tab active">Overview</button>
+        <button data-tab="evidence" class="tab">Evidence</button>
+        <button data-tab="tools" class="tab">Tools</button>
+        <button data-tab="report" class="tab">Report</button>
+      </nav>
+
+      <section id="tab-overview" class="tabpane active"></section>
+      <section id="tab-evidence" class="tabpane"></section>
+      <section id="tab-tools" class="tabpane"></section>
+      <section id="tab-report" class="tabpane"></section>
+    </div>
+  </div>
+  <div id="modal" class="modal hidden" onclick="if(event.target===this)this.classList.add('hidden')"><img id="modal-img"></div>
+  <div id="toasts"></div>
+</main>
+
+<footer class="foot">GeoInt Web — a thin browser shell around the <span class="mono">GeoInt</span> CLI scripts (MIT).</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>
